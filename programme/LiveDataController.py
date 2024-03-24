@@ -1,16 +1,26 @@
 import tkinter as tk
-from tkinter import ttk
-from scapy import all,interfaces
+from tkinter import ttk, filedialog
+from scapy import all, interfaces
+from programme.SparcConfig import SparcConfig
 
 
 class LiveDataController:
     def __init__(self):
+        self.config = None
         self.nic = None
         self.view = LiveDataViewer(self)
         self.nic_list = []
 
     def run(self):
         self.view.mainloop()
+
+    def open_dialog(self):
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Sparc Config", ("*.txt",)), ('all files', '.*')])
+        if len(file_path) == 0:
+            return
+        else:
+            self.open_sparc_config(file_path)
 
     def get_nic(self):
         self.view.nic_table.delete(*self.view.nic_table.get_children())
@@ -25,21 +35,19 @@ class LiveDataController:
 
         item_selected = self.view.nic_table.selection()
         if len(item_selected) != 0:
-
             item_text = self.view.nic_table.item(item_selected[0], "value")
             print(item_text)
             self.nic = interfaces.dev_from_networkname(item_text[0])
-            all.sniff(count=100, iface=self.nic,prn = self.show)
-    def show(self,p):
+            all.sniff(count=100, iface=self.nic, prn=self.show)
+
+    def show(self, p):
         print(p)
-
-
 
     def stop_sniff(self):
         pass
 
-    def open_dialog(self):
-        pass
+    def open_sparc_config(self, file_path):
+        self.config = SparcConfig(file_path)
 
 
 class LiveDataViewer(tk.Tk):
@@ -102,6 +110,8 @@ class LiveDataViewer(tk.Tk):
         signal_sb.grid(column=1, row=0, sticky=tk.NSEW, padx=(0, 5), pady=(0, 5))
         signal_table.config(yscrollcommand=signal_sb.set)
         signal_sb.config(command=signal_table.yview)
+        bt_open = tk.Button(frame, text='Open', command=self.open_dialog)
+        bt_open.grid(column=0, row=1, sticky=tk.NSEW, padx=(5, 0), pady=(5, 0))
 
         return frame
 
