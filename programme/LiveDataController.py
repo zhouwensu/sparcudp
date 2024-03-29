@@ -1,15 +1,35 @@
+import time
 import tkinter as tk
 from tkinter import ttk, filedialog
 from scapy import all, interfaces
+from scapy.layers.inet import UDP
+
 from programme.SparcConfig import SparcConfig
+import threading
+import struct
 
 
 class LiveDataController:
     def __init__(self):
+        self.stop_flg = False
+        self.udp_sniff_thread = None
         self.config = None
         self.nic = None
         self.view = LiveDataViewer(self)
         self.nic_list = []
+
+    def parse_udp(self):
+
+        while not self.stop_flg:
+            if self.config.has_data:
+                for index in self.config.index_list:
+                    self.config.data[index] = struct.unpack('f', self.config.data_bytes[4 * index:4 * index + 4])
+            time.sleep(0.20)
+
+    def update_signal_frame(self):
+        for name, source, index in zip(self.config.signal_list['name'], self.config.signal_list['source'],
+                                       self.config.signal_list['index']):
+            self.view.signal_table.insert('', index=tk.END, value=[name, source], iid=index)
 
     def run(self):
         self.view.mainloop()
@@ -38,22 +58,43 @@ class LiveDataController:
             item_text = self.view.nic_table.item(item_selected[0], "value")
             print(item_text)
             self.nic = interfaces.dev_from_networkname(item_text[0])
-            all.sniff(count=100, iface=self.nic, prn=self.show)
+            self.udp_sniff_thread = threading.Thread(target=all.sniff, kwargs={"count": 0, "iface": self.nic,
+                                                                               'store': False,
+                                                                               "prn": self.set_rawdata,
+                                                                               "filter": 'src host '
+                                                                                         '192.168.1.2'},
+                                                     daemon=True)
+            self.udp_sniff_thread.start()
+            self.view.signal_frame.after(100, self.show_signal)
+            udp_parser = threading.Thread(target=self.parse_udp, daemon=True)
+            udp_parser.start()
 
-    def show(self, p):
-        print(p)
+    def set_rawdata(self, p):
+        if p.haslayer(UDP):
+            data_raw = p[UDP].payload.load
+            self.config.data_bytes = data_raw
+            self.config.has_data = True
+
+    def show_signal(self):
+
+        for index, value in self.config.data.items():
+            self.view.signal_table.set(index, "value", value)
+        if not self.stop_flg:
+            self.view.signal_frame.after(100, self.show_signal)
 
     def stop_sniff(self):
         pass
 
     def open_sparc_config(self, file_path):
         self.config = SparcConfig(file_path)
+        self.update_signal_frame()
 
 
 class LiveDataViewer(tk.Tk):
     def __init__(self, controller):
         super().__init__()
 
+        self.signal_table = None
         self.bt_refresh = None
         self.bt_start = None
         self.bt_stop = None
@@ -98,13 +139,16 @@ class LiveDataViewer(tk.Tk):
         self.controller.open_dialog()
 
     def init_signal_frame(self):
-        col = ["Name", "Value"]
+        col = ["name", "source", "value"]
         frame = tk.Frame(self)
         frame.grid_rowconfigure(0, weight=1)
         frame.grid_columnconfigure(0, weight=1)
         signal_table = ttk.Treeview(master=frame, columns=col, show='headings')
-        signal_table.heading('Name', text='Name')
-        signal_table.heading('Value', text='Value')
+        signal_table.heading('name', text='Name')
+        signal_table.heading('source', text='Source')
+        signal_table.heading('value', text='Value')
+        signal_table.column("name", width=150)
+        signal_table.column("source", width=500)
         signal_table.grid(column=0, row=0, sticky=tk.NSEW, padx=(5, 0), pady=(5, 0))
         signal_sb = tk.Scrollbar(frame)
         signal_sb.grid(column=1, row=0, sticky=tk.NSEW, padx=(0, 5), pady=(0, 5))
@@ -112,6 +156,7 @@ class LiveDataViewer(tk.Tk):
         signal_sb.config(command=signal_table.yview)
         bt_open = tk.Button(frame, text='Open', command=self.open_dialog)
         bt_open.grid(column=0, row=1, sticky=tk.NSEW, padx=(5, 0), pady=(5, 0))
+        self.signal_table = signal_table
 
         return frame
 
