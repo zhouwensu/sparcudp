@@ -16,7 +16,9 @@ class LiveDataController:
         self.config = None
         self.nic = None
         self.view = LiveDataViewer(self)
+        self.is_sniffing = False
         self.nic_list = []
+        self.is_config_loaded = False
 
     def parse_udp(self):
 
@@ -68,6 +70,7 @@ class LiveDataController:
             self.view.signal_frame.after(100, self.show_signal)
             udp_parser = threading.Thread(target=self.parse_udp, daemon=True)
             udp_parser.start()
+            self.is_sniffing = True
 
     def set_rawdata(self, p):
         if p.haslayer(UDP):
@@ -87,7 +90,10 @@ class LiveDataController:
 
     def open_sparc_config(self, file_path):
         self.config = SparcConfig(file_path)
-        self.update_signal_frame()
+        if self.config.is_loaded:
+            self.update_signal_frame()
+        else:
+            self.config = None
 
 
 class LiveDataViewer(tk.Tk):

@@ -1,4 +1,5 @@
 import pandas as pd
+from pandas.errors import ParserError
 
 
 class SparcConfig:
@@ -10,6 +11,7 @@ class SparcConfig:
         self.blank_lines = []
         self.path = path
         self.signal_list = None
+        self.is_loaded = False
         self.open_config()
 
     def open_config(self):
@@ -22,14 +24,23 @@ class SparcConfig:
                 if target_str in line[0]:
                     self.blank_lines.append(i)
                 i = i + 1
-        data = pd.read_csv(self.path, sep='\t', names=["name", "source", "save_flg"],
-                           skiprows=self.blank_lines)
-        data_send = data.query('name.str.startswith("SendValue")', engine="python")
+        try:
+            data = pd.read_csv(self.path, sep='\t', names=["name", "source", "save_flg"],
+                               skiprows=self.blank_lines)
+        except ParserError:
+            pass
+        else:
+            data_send = data.query('name.str.startswith("SendValue")', engine="python")
 
-        self.index_list = data_send['name'].str.split(pat="_", n=1).str[1].astype('int')
-        self.signal_list = data_send.copy()
-        self.signal_list['index'] = self.index_list
-        for item in self.index_list:
-            self.data[item] = 0
+            self.index_list = data_send['name'].str.split(pat="_", n=1).str[1].astype('int')
+            self.signal_list = data_send.copy()
+            self.signal_list['index'] = self.index_list
+            for item in self.index_list:
+                self.data[item] = 0
 
-        self.signal_list = self.signal_list.sort_values('index')
+            self.signal_list = self.signal_list.sort_values('index')
+            self.is_loaded = True
+
+
+
+
