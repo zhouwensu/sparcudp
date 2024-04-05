@@ -7,10 +7,12 @@ from scapy.layers.inet import UDP
 from programme.SparcConfig import SparcConfig
 import threading
 import struct
+import datetime
 
 
 class LiveDataController:
     def __init__(self):
+        self.udp_parser = None
         self.stop_flg = False
         self.udp_sniff_thread = None
         self.config = None
@@ -19,13 +21,25 @@ class LiveDataController:
         self.is_sniffing = False
         self.nic_list = []
         self.is_config_loaded = False
+        self.package_counter = 0
+
+    def log(self, text):
+        now = datetime.datetime.now()
+        time_now = now.strftime("%Y-%m-%d %H:%M:%S")
+        text_var = time_now + "\t" + text
+        self.view.log_to_text(text_var)
 
     def parse_udp(self):
 
         while not self.stop_flg:
             if self.config.has_data:
                 for index in self.config.index_list:
-                    self.config.data[index] = struct.unpack('f', self.config.data_bytes[4 * index:4 * index + 4])
+                    if self.config.data_type[index] == 0:
+                        self.config.data[index] = struct.unpack('f', self.config.data_bytes[4 * index:4 * index + 4])
+                    elif self.config.data_type[index] == 1:
+                        self.config.data[index] = struct.unpack('i', self.config.data_bytes[4 * index:4 * index + 4])
+                    elif self.config.data_type[index] == 2:
+                        self.config.data[index] = struct.unpack('?', self.config.data_bytes[4 * index:4 * index + 4])
             time.sleep(0.20)
 
     def update_signal_frame(self):
@@ -57,36 +71,49 @@ class LiveDataController:
 
         item_selected = self.view.nic_table.selection()
         if len(item_selected) != 0:
-            item_text = self.view.nic_table.item(item_selected[0], "value")
-            print(item_text)
-            self.nic = interfaces.dev_from_networkname(item_text[0])
-            self.udp_sniff_thread = threading.Thread(target=all.sniff, kwargs={"count": 0, "iface": self.nic,
-                                                                               'store': False,
-                                                                               "prn": self.set_rawdata,
-                                                                               "filter": 'src host '
-                                                                                         '192.168.1.2'},
-                                                     daemon=True)
-            self.udp_sniff_thread.start()
-            self.view.signal_frame.after(100, self.show_signal)
-            udp_parser = threading.Thread(target=self.parse_udp, daemon=True)
-            udp_parser.start()
-            self.is_sniffing = True
+            if self.config is not None:
+                item_text = self.view.nic_table.item(item_selected[0], "value")
+                self.nic = interfaces.dev_from_networkname(item_text[0])
+                self.udp_sniff_thread = threading.Thread(target=all.sniff, kwargs={"count": 0, "iface": self.nic,
+                                                                                   'store': False,
+                                                                                   "stop_filter": self.set_rawdata,
+                                                                                   "filter": 'src host ''192.168.1.2'
+                                                                                   },
+                                                         daemon=True)
+                self.udp_sniff_thread.start()
+                self.view.signal_frame.after(100, self.show_signal)
+                self.udp_parser = threading.Thread(target=self.parse_udp, daemon=True)
+                self.udp_parser.start()
+                self.is_sniffing = True
+                self.log("Start Sniffing with "+str(item_text))
+            else:
+                self.log("No Config Loaded")
+        else:
+            self.log("No Network Card Selected")
 
     def set_rawdata(self, p):
         if p.haslayer(UDP):
             data_raw = p[UDP].payload.load
             self.config.data_bytes = data_raw
-            self.config.has_data = True
+            self.package_counter = self.package_counter + 1
+            if not self.config.has_data:
+                self.config.has_data = True
+        return self.stop_flg
 
     def show_signal(self):
 
         for index, value in self.config.data.items():
-            self.view.signal_table.set(index, "value", value)
+            self.view.signal_table.set(index, "value", str(value))
         if not self.stop_flg:
             self.view.signal_frame.after(100, self.show_signal)
 
     def stop_sniff(self):
-        pass
+        if self.is_sniffing and not self.stop_flg:
+            self.stop_flg = True
+            self.udp_parser.join()
+            self.stop_flg = False
+            self.is_sniffing = False
+            self.log("Sniffing Stopped" + ", " + str(self.package_counter) + " packages received.")
 
     def open_sparc_config(self, file_path):
         self.config = SparcConfig(file_path)
@@ -183,3 +210,7 @@ class LiveDataViewer(tk.Tk):
         self.bt_stop.grid(column=2, row=1, sticky=tk.NSEW, padx=(5, 0), pady=(5, 0))
 
         return frame
+
+    def log_to_text(self, text_var):
+        self._log_text.insert('end', text_var)
+        self._log_text.insert('insert', '\n')
