@@ -111,6 +111,7 @@ class LiveDataController:
         if self.is_sniffing and not self.stop_flg:
             self.stop_flg = True
             self.udp_parser.join()
+            self.udp_sniff_thread.join(timeout = 0.1)
             self.stop_flg = False
             self.is_sniffing = False
             self.log("Sniffing Stopped" + ", " + str(self.package_counter) + " packages received.")
