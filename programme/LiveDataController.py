@@ -33,14 +33,14 @@ class LiveDataController:
 
         while not self.stop_flg:
             if self.config.has_data:
-                for index in self.config.index_list:
+                for index in self.config.data_type.keys():
                     if self.config.data_type[index] == 0:
                         self.config.data[index] = struct.unpack('f', self.config.data_bytes[4 * index:4 * index + 4])
                     elif self.config.data_type[index] == 1:
                         self.config.data[index] = struct.unpack('i', self.config.data_bytes[4 * index:4 * index + 4])
                     elif self.config.data_type[index] == 2:
-                        self.config.data[index] = struct.unpack('?', self.config.data_bytes[4 * index:4 * index + 4])
-            time.sleep(0.20)
+                        self.config.data[index] = struct.unpack('?', self.config.data_bytes[4 * index:4 * index + 1])
+            time.sleep(0.05)
 
     def update_signal_frame(self):
         for name, source, index in zip(self.config.signal_list['name'], self.config.signal_list['source'],
@@ -68,28 +68,32 @@ class LiveDataController:
             self.view.nic_table.insert('', index=tk.END, value=[name, ip])
 
     def start_sniff(self):
-
-        item_selected = self.view.nic_table.selection()
-        if len(item_selected) != 0:
-            if self.config is not None:
-                item_text = self.view.nic_table.item(item_selected[0], "value")
-                self.nic = interfaces.dev_from_networkname(item_text[0])
-                self.udp_sniff_thread = threading.Thread(target=all.sniff, kwargs={"count": 0, "iface": self.nic,
-                                                                                   'store': False,
-                                                                                   "stop_filter": self.set_rawdata,
-                                                                                   "filter": 'src host ''192.168.1.2'
-                                                                                   },
-                                                         daemon=True)
-                self.udp_sniff_thread.start()
-                self.view.signal_frame.after(100, self.show_signal)
-                self.udp_parser = threading.Thread(target=self.parse_udp, daemon=True)
-                self.udp_parser.start()
-                self.is_sniffing = True
-                self.log("Start Sniffing with "+str(item_text))
+        if not self.is_sniffing:
+            item_selected = self.view.nic_table.selection()
+            if len(item_selected) != 0:
+                if self.config is not None:
+                    item_text = self.view.nic_table.item(item_selected[0], "value")
+                    self.nic = interfaces.dev_from_networkname(item_text[0])
+                    self.udp_sniff_thread = threading.Thread(target=all.sniff, kwargs={"count": 0, "iface": self.nic,
+                                                                                       'store': False,
+                                                                                       "stop_filter": self.set_rawdata,
+                                                                                       "filter": 'src host ''192.168.1.2'
+                                                                                       },
+                                                             daemon=True)
+                    self.udp_sniff_thread.start()
+                    self.view.signal_frame.after(100, self.show_signal)
+                    self.udp_parser = threading.Thread(target=self.parse_udp, daemon=True)
+                    self.udp_parser.start()
+                    self.is_sniffing = True
+                    self.log("Start Sniffing with " + str(item_text))
+                else:
+                    self.log("No Config Loaded")
             else:
-                self.log("No Config Loaded")
+                self.log("No Network Card Selected")
         else:
-            self.log("No Network Card Selected")
+            self.log("Already Started")
+
+
 
     def set_rawdata(self, p):
         if p.haslayer(UDP):
@@ -103,9 +107,9 @@ class LiveDataController:
     def show_signal(self):
 
         for index, value in self.config.data.items():
-            self.view.signal_table.set(index, "value", str(value))
+            self.view.signal_table.set(index, "value", value)
         if not self.stop_flg:
-            self.view.signal_frame.after(100, self.show_signal)
+            self.view.signal_frame.after(500, self.show_signal)
 
     def stop_sniff(self):
         if self.is_sniffing and not self.stop_flg:
